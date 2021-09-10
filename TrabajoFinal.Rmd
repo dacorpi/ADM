@@ -1,0 +1,526 @@
+---
+title: "__Trabajo Final__"
+author: "David Cordoba - Valentina Hernandez - Juan Felipe Velasco"
+date: "11/09/2021"
+output:
+  html_notebook: null
+  df_print: paged
+  html_document:
+    df_print: paged
+  toc: yes
+  toc_depth: 5
+  toc_float:
+    collapse: yes
+    smooth_scroll: yes
+---
+
+```{r}
+# Se instalan los paquetes requeridos
+install.packages("ggplot2") #visualizar datos en graficas
+install.packages('hydroGOF') #confirmar resultados
+install.packages("randomForest") #ramdomforest
+install.packages("e1071") #maquina vector soporte
+```
+
+
+```{r}
+# Se instalan las librerías con las cuales se van a trabajar
+library(plyr) #Librería para contar datos
+library(ggplot2) #Para visualizacion de datos
+library(zoo) #Para las metricas 
+library (hydroGOF) #Librería para RMSE y MAE
+library (randomForest) #Librería para trabajar con random forest
+library(e1071) #Librería para trabajar las máquinas vector soporte
+require(gridExtra) #Librería para manipulación de grids de gráficos 
+library(rpart) #Librería para trabajar con arboles de regresión
+```
+
+
+# **1 METODOLOGÍA UTILIZADA: CRISP-DM**
+![](C:/Users/USER/Documents/ADM/TrabajoFinal/crisp-dm.png)
+
+Es uno de los modelos analíticos más usados. Se trata de un proceso que describe los enfoques comunes que utilizan los expertos en minería de datos. 
+
+## **1.1 COMPRENDER EL NEGOCIO**
+Somos la empresa McQueen, y fuimos contratados por la ciudad de las Vegas para realizar un estudio de analisis sobre las entradas en los locales de comida de la ciudad, para predecir sus entradas.  
+
+**1.1.1 Definir el problema:** 
+Actualmente en los locales de comida de la ciudad de Las Vegas no se cuenta con un modelo de predicción que permita pronosticar  las entradas en dichos locales, por lo que los comerciantes no tienen claro los momentos con mayor demanda.  
+
+**1.1.2 Determinar objetivos:**
+El objetivo de este proyecto es crear un modelo de aprendizaje de máquina que permita predecir los check-ins (las entradas) de los locales de comida en la ciudad de las vegas.
+
+# **2 PRE-PROCESAMIENTO DE DATOS**
+
+
+
+![](C:/Users/USER/Documents/ADM/TrabajoFinal/comprender-datos.png)
+
+
+```{r pressure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+#Se prepara el ambiente de trabajo
+getwd()
+setwd("C:/Users/USER/Documents/ADM/TrabajoFinal")
+getwd()
+
+```
+## **2.1 COMPRENDER LOS DATOS**
+
+
+
+Inicialmente debemos entender la necesidad del negocio, cuales son las variables a considerar, cuales son las variables que lo comprenden y que en realidad aportan informacion util para el desarrollo del modelo.  
+
+**2.1.1 Recolectar los datos:**
+```{r}
+# Se carga el archivo que contiene los datos con los cuales vamos a trabajar
+Datos = read.csv("Business_Checkin.csv", header = TRUE, sep = ",")
+``` 
+**2.1.2 Describir los datos:** 
+```{r}
+#Cantidad de registros
+nrow(Datos)
+
+#Cantidad de variables
+ncol(Datos)
+
+#Resumen de los datos
+summary(Datos)
+```
+**2.1.3 Verificar la calidad de los datos:** 
+```{r}
+#Comprobamos si hay valores faltantes
+which(is.na(Datos))
+```
+## **2.2 PREPARAR LOS DATOS** 
+En esta etapa se obtendran los datos necesarios segun el analisis realizado  
+
+**2.2.1 Seleccionar los datos: ** 
+```{r}
+#Se filtran los datos que pertenezcan a la ciudad de las vegas
+DatosVegas = Datos[Datos$city == "Las Vegas",]
+
+#Se crea el dataframe para los datos de la tabla 1
+DatosGrafica =  Datos[Datos$category == "Food",]
+
+
+#Se filtran los locales que se encuentran abiertos 
+DatosVegas = DatosVegas[DatosVegas$is_open > 0,]
+
+#Se filtra los negocios de tipo "Food"
+DatosVegas = DatosVegas[DatosVegas$category == "Food",]
+
+# Se muestra la grafica de las ciudades y sus respectivas estrellas en locales de comida
+ggplot(data = DatosGrafica, aes(x = city, y = stars)) +
+   geom_point(color = "red") +
+  theme_bw() +
+  labs(x = "Ciudades", y = "Estrellas")
+
+
+```
+**2.2.2 Limpiar los datos: **
+
+```{r}
+#Se eliminan las columnas ï..rownumber, business_id, city, review_count, is_open, category  y day_time 
+DatosVegas$ï..rownumber = NULL
+DatosVegas$business_id = NULL
+DatosVegas$city = NULL
+DatosVegas$review_count = NULL
+DatosVegas$is_open = NULL
+DatosVegas$category = NULL
+DatosVegas$day_time = NULL
+
+#Se vuelven las  variables de tipo texto a variables numéricas 
+DatosVegasNum = data.frame(data.matrix(DatosVegas))
+
+# Se muestra la grafica de las entradas respecto a las estrellas en los locales de comida de las Vegas
+ggplot(data = DatosVegasNum, aes(x = checkins, y = stars)) +
+  geom_point(color = "purple") +
+  theme_bw() +
+  labs(x = "Entradas", y = "Estrellas")
+
+# Se muestra la grafica de las entradas respecto al día de la semana en los locales de comida de las Vegas
+ggplot(data = DatosGrafica, aes(x = week_day, y = checkins)) +
+  geom_point(color = "green") +
+  theme_bw() +
+  labs(x = "Día de la semana ", y = "Entradas")
+
+
+
+
+#Se verifica la cantidad final de datos con los que se va a trabajar
+nrow(DatosVegasNum)
+```
+De acuerdo a la siguiente formula correspondiente a la heuristica, se determina si la cantidad de datos según el filtro aplicado, es suficiente para realizar el modelo.
+***d*** corresponde al número de variables.En nuestro caso el número de variables ***d*** es igual a 4.
+$${\displaystyle 10*2^{d}}$$ 
+$${\displaystyle 10*2^{4}}= 160$$
+De acuerdo a la heuristica hallada (160) se cuenta con los datos suficientes para realizar el modelo debido a que es menor con respecto al numero de datos totales.
+$${\displaystyle 160<504}$$
+**2.2.3 Construir los datos**
+```{r}
+# Se fija una semilla 
+set.seed(1000)
+
+# Se hace la mezcla de los datos
+DatosEntrenamiento = sample(nrow(DatosVegasNum))
+
+# Se guardan los datos mezclados
+Temp = DatosVegasNum[DatosEntrenamiento,]
+
+# Se asignan los datos de entrenamiento
+DatosEntrenamiento = DatosVegasNum[1:floor(nrow(Temp)*0.80),]
+
+# Se asignan los datos de prueba
+DatosPrueba = Temp[(nrow(DatosEntrenamiento)+1):nrow(Temp),]
+
+# Se verifica el tamaño de las muestras
+nrow(DatosEntrenamiento)
+nrow(DatosPrueba)
+
+
+  
+```
+De acuerdo al resultado anterior, podemos corroborar que la suma entre los datos de entrenamiento y los datos de prueba es igual a la cantidad de registros.
+$${\displaystyle 403+101=504}$$
+
+
+# **3 MODELAMIENTO**
+
+![](https://ayudaleyprotecciondatos.es/wp-content/uploads/2020/09/modelo-base-de-datos-00.jpg)
+
+En esta etapa se realizara el modelamiento de los datos por medio de algoritmos de aprendizaje de maquinas supervisados, utilizando tecnicas de regresión.  
+
+**3.1.1 Seleccionar técnicas de modelado:** 
+Los algoritmos de regresión que se implementaran son:  
+
+- Máquina de Vector Soporte  
+
+- Random Forest  
+
+- Arboles de Regresión
+<br/><br/>
+ 
+**3.1.2 Construir el modelo: **
+
+Se definieron tres modelos de predicción basados en los siguientes algoritmos de regresión:  
+
+**3.2.1.1  Máquina de vector soporte **
+```{r}
+#Se genera el modelo para predecir la cantidad de entradas utilizando los datos de entrenamiento
+MVSmodel <- svm(checkins~., data=DatosEntrenamiento, kernel='radial', cost=10)
+
+#Se muestra un resumen del modelo
+summary(MVSmodel)
+
+#Se realiza la predicción con los  datos de entrenamiento de acuerdo al modelo generado
+predictionTrainning = predict(MVSmodel, DatosEntrenamiento)
+
+#Se realiza el redondeo de los datos
+predictionTrainning = ceiling(predictionTrainning)
+
+# Se muestra un resumen de la predicción con los datos de entrenamiento
+summary(predictionTrainning)
+
+# Se pasan los datos de la predicción a un dataframe
+predictionTrainning.df = as.data.frame(predictionTrainning)
+
+# Se agrega la columna de las entradas reales al data frame 
+predictionTrainning.df$Real = DatosEntrenamiento$checkins
+
+#Se realiza la predicción con los  datos de prueba de acuerdo al modelo generado
+predictionTest = predict(MVSmodel, DatosPrueba)
+
+#Se realiza el redondeo de los datos
+predictionTest = ceiling(predictionTest)
+
+# Se muestra un resumen de la predicción con los datos de prueba
+summary(predictionTest)
+
+# Se pasan los datos de la predicción a un dataframe
+predictionTest.df = as.data.frame(predictionTest)
+
+# Se agrega la columna de las entradas reales al data frame 
+predictionTest.df$Real = DatosPrueba$checkins
+
+# Se construye la gráfica predicción vs datos reales en pruebas
+predictionTestGraph = 
+  ggplot(data = predictionTest.df,
+         aes(x = predictionTest, y = Real )) +
+  #geom_line(color = "grey")  +
+  geom_point(color = "red") +
+  theme_bw() +
+  labs(x = "Predicción", y = "Datos pruebas") +
+  ggtitle("Datos pruebas VS MVSmodel")
+
+predictionTestGraph2=plot(predictionTrainning.df$predictionTrainning, predictionTrainning, col = "green", main = "Datos entrenamiento VS MVSmodel", xlab = "Predicción", ylab = "Datos entrenamiento", type="o")
+
+predictionTestGraph3=hist(x = predictionTrainning, main = "Histograma de Datos entrenamiento", 
+     xlab = "Datos entrenamiento", ylab = "MVSmodel")
+
+# Se modifica el grid para mostrar las dos gráficas de manera simultanea
+grid.arrange(predictionTestGraph, ncol=1)
+
+```
+**3.2.1.2  Random Forest**
+```{r}
+# Se genera el modelo para predecir la cantidad de entradas utilizando los datos de entrenamiento
+RFModel = randomForest(checkins~., data = DatosEntrenamiento, ntree=100, mtry=4)
+
+# Se muestra un resumen del modelo
+summary(RFModel)
+
+# Se realiza la predicción con los  datos de entrenamiento de acuerdo al modelo generado
+RFpredictionTrainning = predict(RFModel, DatosEntrenamiento)
+
+# Se realiza el redondeo de los datos
+RFpredictionTrainning = ceiling(RFpredictionTrainning)
+
+# Se muestra un resumen de la predicción con los datos de entrenamiento
+summary(RFpredictionTrainning)
+
+# Se pasan los datos de la predicción a un dataframe
+RFpredictionTrainning.df = as.data.frame(RFpredictionTrainning)
+
+# Se agrega la columna de las entradas reales al data frame 
+RFpredictionTrainning.df$Real = DatosEntrenamiento$checkins
+
+#Se realiza la predicción con los  datos de prueba de acuerdo al modelo generado
+RFpredictionTest = predict(RFModel, DatosPrueba)
+
+# Se realiza el redondeo de los datos
+RFpredictionTest = ceiling(RFpredictionTest)
+
+# Se muestra un resumen de la predicción con los datos de entrenamiento
+summary(RFpredictionTest)
+
+# Se pasan los datos de la predicción a un dataframe
+RFpredictionTest.df = as.data.frame(RFpredictionTest)
+
+# Se agrega la columna de las entradas reales al data frame 
+RFpredictionTest.df$Real = DatosPrueba$checkins
+
+# Se construye la gráfica predicción vs datos en entrenamiento
+RFpredictionTrainingGraph = 
+  ggplot(data = RFpredictionTrainning.df,
+         aes(x = RFpredictionTrainning, y = Real )) +
+  #geom_line(color = "grey")  +
+  geom_point(color = "purple") +
+  theme_bw() +
+  labs(x = "Predicción", y = "Datos entrenamiento") +
+  ggtitle("Datos entrenamiento VS RFModel")
+
+# Se construye la gráfica predicción vs datos en pruebas
+RFpredictionTestGraph2 = 
+  ggplot(data = RFpredictionTest.df,
+         aes(x = RFpredictionTest  , y = Real )) +
+  #geom_line(color = "blue")  +
+  geom_point(color = "green") +
+  theme_bw() +
+  labs(x = "Predicción", y = "Datos pruebas") +
+  ggtitle("Datos pruebas VS RFModel")
+
+#Modificamos la grid para mostrar las dos gráficas de manera simultanea
+grid.arrange(RFpredictionTrainingGraph, RFpredictionTestGraph2, ncol=2)
+
+
+```  
+**3.2.1.3  Arboles de Regresion**
+```{r}
+# Se genera el modelo para predecir la cantidad de entradas utilizando los datos de entrenamiento
+ARModel = rpart(checkins~., data = DatosEntrenamiento, method="anova", control=rpart.control(minsplit = 4,cp=0.001))
+
+# Se muestra un resumen del modelo
+summary(ARModel)
+
+# Se realiza la predicción con los  datos de entrenamiento de acuerdo al modelo generado
+ARpredictionTrainning = predict(ARModel, DatosEntrenamiento)
+
+# Se pasan los datos de la predicción a un dataframe
+ARpredictionTrainning.df = as.data.frame(ARpredictionTrainning)
+
+# Se agrega la columna de las entradas reales al data frame 
+ARpredictionTrainning.df$Real = DatosEntrenamiento$checkins
+
+# Se realiza el redondeo de los datos
+ARpredictionTrainning.df$ARpredictionTrainning = 
+  floor(ARpredictionTrainning.df$ARpredictionTrainning)
+
+# Se muestra un resumen de la predicción con los datos de entrenamiento
+summary(ARpredictionTrainning.df$ARpredictionTrainning)
+
+# Se realiza la predicción con los  datos de prueba de acuerdo al modelo generado
+ARpredictionTest = predict(ARModel, DatosPrueba)
+
+# Se pasan los datos de la predicción a un dataframe
+ARpredictionTest.df = as.data.frame(ARpredictionTest)
+
+# Se agrega la columna de las entradas reales al data frame 
+ARpredictionTest.df$Real = DatosPrueba$checkins
+
+# Se realiza el redondeo de los datos
+ARpredictionTest.df$ARpredictionTest = floor(ARpredictionTest.df$ARpredictionTest)
+
+# Se muestra un resumen de la predicción con los datos de entrenamiento
+summary(ARpredictionTest.df$ARpredictionTest)
+
+#Creamos la gráfica para la predicción vs los datos reales en entrenamiento
+ARpredictionTrainingGraph = 
+  ggplot(data = ARpredictionTrainning.df,
+         aes(x = ARpredictionTrainning, y = Real )) +
+  #geom_line(color = "red")  +
+  geom_point(color = "green") +
+  theme_bw() +
+  labs(x = "Predicción", y = "Datos entrenamiento") +
+  ggtitle("Datos entrenamiento VS modelo")
+
+# Se construye la gráfica predicción vs datos en entrenamiento
+ARpredictionTrainingGraph2 = 
+  ggplot(data = ARpredictionTest.df,
+         aes(x = ARpredictionTest, y = Real )) +
+  #geom_line(color = "blue")  +
+  geom_point(color = "orange") +
+  theme_bw() +
+  labs(x = "Predicción", y = "Datos entrenamiento") +
+  ggtitle("Datos pruebas VS ARModel")
+
+#Modificamos la grid para mostrar las dos gráficas de manera simultanea
+grid.arrange(ARpredictionTrainingGraph, ARpredictionTrainingGraph2, ncol=2)
+
+
+```  
+## **3.2.1 Evaluar los modelos**
+
+En esta etapa se realiza la confrontación entre los datos de entrenamiento y los datos de pruebas, esto con el fin de elegir el modelo optimo segun las necesidades del negocio, teniendo en cuenta que la evaluación de estos modelos se hicieron bajo las metricas RMSE y MAE.
+
+#### **3.2.1.1 Maquina de vector soporte**
+```{r}
+
+P.EntrenamientoMVS = predictionTrainning.df$predictionTrainning
+A.EntrenamientoMVS = DatosEntrenamiento$checkins
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de entrenamiento
+MAE.EntrenamientoMVS = mae(P.EntrenamientoMVS, A.EntrenamientoMVS)
+RMSE.EntrenamientoMVS = rmse(P.EntrenamientoMVS, A.EntrenamientoMVS)
+
+P.PruebasMVS = predictionTest
+A.PruebasMVS = DatosPrueba$checkins
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de pruebas
+MAE.PruebasMVS = mae(P.PruebasMVS, A.PruebasMVS)
+RMSE.PruebasMVS = rmse(P.PruebasMVS, A.PruebasMVS)
+
+
+# Se muestran los resultados de la metrica RMSE en pruebas y entrenamiento
+RMSE.EntrenamientoMVS
+RMSE.PruebasMVS
+
+
+# Se muestran los resultados de la metrica MAE en pruebas y entrenamiento
+MAE.EntrenamientoMVS
+MAE.PruebasMVS
+
+```  
+#### **3.2.1.1 Bosques aleatorios**
+```{r}
+P.EntrenamientoRandomForest = RFpredictionTrainning
+A.EntrenamientoRandomForest = DatosEntrenamiento$checkins
+
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de entrenamiento
+MAE.EntrenamientoRandomForest = mae(P.EntrenamientoRandomForest, A.EntrenamientoRandomForest)
+RMSE.EntrenamientoRandomForest = rmse(P.EntrenamientoRandomForest, A.EntrenamientoRandomForest)
+
+P.PruebasRandomForest = RFpredictionTest
+A.PruebasRandomForest = DatosPrueba$checkins
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de pruebas
+MAE.PruebasRandomForest = mae(P.PruebasRandomForest, A.PruebasRandomForest)
+RMSE.PruebasRandomForest = rmse(P.PruebasRandomForest, A.PruebasRandomForest)
+
+
+# Se muestran los resultados de la metrica RMSE en pruebas y entrenamiento
+MAE.EntrenamientoRandomForest
+MAE.PruebasRandomForest
+
+
+# Se muestran los resultados de la metrica MAE en pruebas y entrenamiento
+RMSE.EntrenamientoRandomForest
+RMSE.PruebasRandomForest
+
+```
+#### **3.2.1.1 Arboles de regresión**
+```{r}
+
+P.EntrenamientoAR = ARpredictionTrainning.df$ARpredictionTrainning
+A.EntrenamientoAR = DatosEntrenamiento$checkins
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de entrenamiento
+MAE.EntrenamientoAR = mae(P.EntrenamientoAR, A.EntrenamientoAR)
+RMSE.EntrenamientoAR = rmse(P.EntrenamientoAR, A.EntrenamientoAR)
+
+P.PruebasAR = ARpredictionTest.df$ARpredictionTest
+A.PruebasAR = DatosPrueba$checkins
+
+# Se calcula la metrica MAE y  RMSE de la predicción hecha con los datos de pruebas
+MAE.PruebasAR = mae(P.PruebasAR, A.PruebasAR)
+RMSE.PruebasAR = rmse(P.PruebasAR, A.PruebasAR)
+
+
+# Se muestran los resultados de la metrica RMSE en pruebas y entrenamiento
+MAE.EntrenamientoAR
+MAE.PruebasAR
+
+
+# Se muestran los resultados de la metrica MAE en pruebas y entrenamiento
+RMSE.EntrenamientoAR
+RMSE.PruebasAR
+
+```
+  
+  
+## **3.2.2 Tablas Resumen**
+En las siguientes tablas se expondran los datos obetenidos en las metricas para cada uno de los algortimos utilizados tanto en datos de entrenamiento como en datos de prueba, facilitando de esta manera la elección del mejor algoritmo.
+
+#### **3.2.2.1 Resultados de las metricas para Maquina de Vector Soporte(MVS)**
+
+| MVS  | Entrenamiento |    Prueba     |
+|:---: |:-------------:|:-------------:|
+| RMSE | 0.8756423     | 0.9749334     |
+| MAE  | 0.6873449     | 0.7326733     |
+
+
+
+#### **3.2.2.1 Resultados de las metricas para Random Forest(RF)**
+
+|  RF  | Entrenamiento |    Prueba    |
+|:---: |:-------------:|:------------:|
+| RMSE | 0.7235836     | 0.979998     |
+| MAE  | 0.5136476     | 0.6633663    |
+
+
+
+#### **3.2.2.1 Resultados de las metricas para Arboles de Regresión(AR)**
+
+|  AR  | Entrenamiento |    Prueba    |
+|:---: |:-------------:|:------------:|
+| RMSE | 0.3890562     | 0.917379     |
+| MAE  | 0.1315136     |  0.4059406   |
+
+
+
+
+# **4 EVALUAR**
+
+![](https://i2.wp.com/cualli.mx/wp-content/uploads/2018/06/como-evaluar-un-proyecto-de-inversion.jpg?fit=900%2C471&ssl=1)
+
+En esta etapa, se debe realizar un analisis en conjunto y detallado con la obtención de metricas, para asi poder determinar el algoritmo que mejor predice al modelo.
+En este caso, y con respecto a los resultados obtenidos, se puede concluir que el algoritmo optimo a elegir es el de Arboles de Regresión, debido a que es el que presenta mejores resultados.
+
+# **5 DESPLEGAR** 
+
+Se aplica al modelo de negocio el algoritmo correspodiente a la tecnica de Arboles de Regresión.
+
+![](https://i2.wp.com/ffontanesf.es/wp-content/uploads/2017/01/rocket.png?fit=624%2C586&ssl=1)
+
+
+
